@@ -8,7 +8,7 @@ description: |
   Use when asked to "sync with the hive", "check my inbox", "hive status",
   or "hive sync".
   Proactively suggest at the start of a new task if you haven't checked your
-  hive inbox in this conversation. (munder-difflin)
+  hive inbox in this conversation. (the-swain-office)
 allowed-tools:
   - Read
   - Bash

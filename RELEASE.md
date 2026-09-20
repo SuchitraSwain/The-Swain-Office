@@ -371,7 +371,6 @@ Full notes in the [CHANGELOG](https://github.com/SuchitraSwain/The-Swain-Office/
 [Website](https://the-swain-office.vercel.app/) ·
 [Repo](https://github.com/SuchitraSwain/The-Swain-Office) ·
 [Issues](https://github.com/SuchitraSwain/The-Swain-Office/issues) ·
-[Contribute](https://github.com/SuchitraSwain/The-Swain-Office/blob/main/CONTRIBUTING.md) ·
-[Become a patron](https://razorpay.me/@munderdifflinfund)
+[Contribute](https://github.com/SuchitraSwain/The-Swain-Office/blob/main/CONTRIBUTING.md)
 
 MIT-licensed. An affectionate parody — not affiliated with NBC's *The Office* or Dunder Mifflin.

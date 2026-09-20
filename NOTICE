@@ -1,0 +1,9 @@
+The Swain Office
+================
+
+Source code is released under the MIT License. The copyright notices and
+permission text are in LICENSE. Keep those notices with any copy of the code.
+
+Pixel-art tilesets and maps under src/renderer/src/assets/ are not MIT.
+They are Modern Interiors by LimeZu. Credit and terms are in LICENSE-ASSETS
+and src/renderer/src/assets/ATTRIBUTION.md.

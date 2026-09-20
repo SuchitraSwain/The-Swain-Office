@@ -10,14 +10,15 @@ if (typeof document !== 'undefined' && !document.getElementById('jb-mono-font'))
   const link = document.createElement('link');
   link.id = 'jb-mono-font';
   link.rel = 'stylesheet';
-  link.href = 'https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap';
+  link.href = 'https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap';
+  const done = () => continueRender(handle);
+  const timer = setTimeout(done, 4000);
   link.onload = () => {
-    // Make sure glyphs are actually ready before the first frame is captured.
     const ready = (document as any).fonts?.ready as Promise<unknown> | undefined;
-    if (ready) ready.then(() => continueRender(handle));
-    else continueRender(handle);
+    if (ready) ready.then(() => { clearTimeout(timer); done(); });
+    else { clearTimeout(timer); done(); }
   };
-  link.onerror = () => continueRender(handle);
+  link.onerror = () => { clearTimeout(timer); done(); };
   document.head.appendChild(link);
 }
 

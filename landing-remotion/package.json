@@ -14,6 +14,8 @@
     "render:godhive:mp4": "remotion render src/index.ts HowGodHive ../docs/media/how-god-hive.mp4 --codec=h264",
     "render:hero:webm": "remotion render src/index.ts HeroFallback ../docs/media/hero.webm --codec=vp8",
     "render:hero:mp4": "remotion render src/index.ts HeroFallback ../docs/media/hero.mp4 --codec=h264",
+    "render:linkedin": "remotion render src/index.ts LinkedInReel ../docs/media/linkedin-features.mp4 --codec=h264",
+    "render:walkthrough": "remotion render src/index.ts AppWalkthrough ../docs/media/app-walkthrough.mp4 --codec=h264 --timeout=120000 --muted",
     "render:all": "npm run render:agents:webm && npm run render:agents:mp4 && npm run render:mempalace:webm && npm run render:mempalace:mp4 && npm run render:godhive:webm && npm run render:godhive:mp4"
   },
   "dependencies": {

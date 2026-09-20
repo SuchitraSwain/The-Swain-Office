@@ -1,0 +1,140 @@
+/* Design tokens — mirrors tokens.ts. Update both together. */
+:root {
+  /* Base */
+  --cth-cream-50:  #FFFDF5;
+  --cth-cream-100: #FFF8E7;
+  --cth-cream-200: #F4E9C7;
+  --cth-cream-300: #E8D9A0;
+  --cth-paper-100: #FCFAF0;
+  --cth-paper-200: #F0EAD2;
+
+  /* Ink */
+  --cth-ink-900: #1A1320;
+  --cth-ink-700: #3D2E4A;
+  --cth-ink-500: #6B5878;
+  --cth-ink-300: #A899B5;
+  --cth-ink-100: #D9CFE0;
+
+  /* Accents — v0.3.4 recalibration: same hues, professional saturation.
+     The originals (#FFD93D, #FF6B6B, …) were full-saturation arcade tones that
+     read as noise at UI density; these sit in the calmer band that products
+     like Linear/Radix use — recognizable color, no glare. */
+  --cth-coral: #D96A62;       --cth-coral-light: #F3D3CD;
+  --cth-mint:  #5CA97A;       --cth-mint-light:  #D2E7DA;
+  --cth-sky:   #4F9FAF;       --cth-sky-light:   #CFE5E9;
+  --cth-lemon: #DCAB3C;       --cth-lemon-light: #F3E4BC;
+  --cth-lilac: #9482D3;       --cth-lilac-light: #E0DAF2;
+  --cth-peach: #D99168;       --cth-peach-light: #F3DACA;
+
+  /* Status — same recalibration; hue meanings unchanged */
+  --cth-status-idle:     #A199AB;
+  --cth-status-thinking: #4F9FAF;
+  --cth-status-working:  #DCAB3C;
+  --cth-status-waiting:  #6D87D6;
+  --cth-status-blocked:  #D96A62;
+  --cth-status-success:  #5CA97A;
+  --cth-status-ghost:    #D9D3DE;
+  --cth-status-compacting: #8F7CC7; /* #5C — mid-/compact, "boxing up context" */
+  --cth-status-looping:    #D6903F; /* #5C — circuit-breaker armed (runaway) */
+  --cth-status-typing:     #C89838; /* unsent text on the prompt — queue is held */
+
+  /* Spacing */
+  --cth-space-0: 0px;
+  --cth-space-1: 4px;
+  --cth-space-2: 8px;
+  --cth-space-3: 12px;
+  --cth-space-4: 16px;
+  --cth-space-5: 24px;
+  --cth-space-6: 32px;
+  --cth-space-7: 48px;
+  --cth-space-8: 64px;
+
+  /* Chrome titles use Inter (same as body). Press Start 2P is brand-only. */
+  --cth-font-display: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", "Geeza Pro", "Noto Naskh Arabic", "Segoe UI Historic", sans-serif;
+  --cth-font-ui:      "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", "Geeza Pro", "Noto Naskh Arabic", "Segoe UI Historic", sans-serif;
+  --cth-font-brand:   "Press Start 2P", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", "Geeza Pro", "Noto Naskh Arabic", "Segoe UI Historic", monospace;
+  --cth-font-mono:    "JetBrains Mono", ui-monospace, "SF Mono", Menlo, "PingFang SC", "Microsoft YaHei", "Noto Sans Mono CJK SC", "Noto Sans CJK SC", "Geeza Pro", "Noto Naskh Arabic", "Segoe UI Historic", monospace;
+
+  /* Type scale — v0.3.4: one step tighter (Inter reads larger than Pixelify
+     at equal px, and the controls were oversized) */
+  --cth-text-display-lg: 18px;
+  --cth-text-display-md: 14px;
+  --cth-text-display-sm: 11px;
+  --cth-text-body-lg:    16px;
+  --cth-text-body-md:    14px;
+  --cth-text-body-sm:    13px;
+  --cth-text-mono-md:    14px;
+  --cth-text-mono-sm:    13px;
+
+  /* Line heights — integer multiples */
+  --cth-lh-display-lg: 24px;
+  --cth-lh-display-md: 20px;
+  --cth-lh-display-sm: 16px;
+  --cth-lh-body-lg:    24px;
+  --cth-lh-body-md:    20px;
+  --cth-lh-body-sm:    18px;
+  --cth-lh-mono:       20px;
+
+  /* Hard drop shadow — no blur, softer than before */
+  --cth-shadow-hard: 3px 3px 0 rgba(26, 19, 32, 0.14);
+
+  /* Panel borders — v0.3.4: single hairlines. The old three-layer package
+     boxed every surface in thick chrome; structure now comes from surface
+     contrast, not outlines. Dialogs keep one slightly stronger line. */
+  --cth-panel-border:          inset 0 0 0 1px var(--cth-ink-300);
+  /* Text that sits ON an accent fill (a selected tab, a filled chip). The
+     accents are LIGHT surfaces in BOTH themes, so this is dark in both — using
+     ink-900 here inverts with the theme and paints near-white on a pale accent,
+     which is the one place the theme switch actively hurts legibility. */
+  --cth-on-accent: #1A1320;
+
+  --cth-panel-border-inset:    inset 0 0 0 1px var(--cth-ink-100);
+  --cth-panel-border-terminal: inset 0 0 0 1px var(--cth-ink-300);
+  --cth-panel-border-dialog:   inset 0 0 0 1px var(--cth-ink-500);
+}
+
+/* ── Soft dusk (dark) ────────────────────────────────────────────────────────
+   Lifted warm taupe, not near-black walnut. Lower contrast so it is easier on
+   the eyes for long sessions. Stamped by design/theme.ts as data-cth-theme on
+   <html>; terminals and Claude session themes follow the same switch.
+
+   Ground sits around #2A2723 — visibly dark, never ink-black. Text is a muted
+   linen (#D2CBC0), never bright cream. Gold is softened. No stripe texture. */
+:root[data-cth-theme='dark'] {
+  --cth-cream-50:  #221F1B;   /* app ground — lifted taupe */
+  --cth-cream-100: #2A2723;
+  --cth-cream-200: #35312C;
+  --cth-cream-300: #454038;
+  --cth-paper-100: #2E2B26;   /* cards, inputs, terminals */
+  --cth-paper-200: #38342E;
+
+  --cth-ink-900: #D2CBC0;   /* primary — muted linen, not glare */
+  --cth-ink-700: #B3ACA0;   /* secondary */
+  --cth-ink-500: #8F887C;   /* tertiary / hints */
+  --cth-ink-300: #6E6860;   /* borders */
+  --cth-ink-100: #4A453E;   /* dividers */
+
+  --cth-coral: #D9928A;       --cth-mint:  #7BB396;
+  --cth-sky:   #75A8B6;       --cth-lemon: #C9A85A;
+  --cth-lilac: #A898D0;       --cth-peach: #D4A07C;
+
+  --cth-coral-light: #3F322F;
+  --cth-mint-light:  #2A3830;
+  --cth-sky-light:   #2A363A;
+  --cth-lemon-light: #3D3728;
+  --cth-lilac-light: #332F3E;
+  --cth-peach-light: #3C332C;
+
+  --cth-status-idle:     #6E6860;
+  --cth-status-thinking: #75A8B6;
+  --cth-status-working:  #C9A85A;
+  --cth-status-waiting:  #8090C8;
+  --cth-status-blocked:  #D9928A;
+  --cth-status-success:  #7BB396;
+  --cth-status-ghost:    #6A645C;
+  --cth-status-compacting: #A898D0;
+  --cth-status-looping:    #C99658;
+  --cth-status-typing:     #C9A85A;
+
+  --cth-shadow-hard: 3px 3px 0 rgba(0, 0, 0, 0.22);
+}

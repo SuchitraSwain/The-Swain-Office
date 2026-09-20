@@ -1,0 +1,47 @@
+# The Swain Office
+
+> The Swain Office gives you clones for you and your team, working 24/7. It is a free,
+> MIT-licensed, local-first multi-agent harness for CLI coding agents that turns Claude Code,
+> OpenAI Codex, Antigravity (Gemini), GitHub Copilot CLI, xAI Grok, Kimi Code, Qwen, OpenCode,
+> Crush, Gemini CLI, Cursor Agent, and pi.dev into a coordinated "office" of agents on
+> your own computer — each agent a real CLI process in a real terminal, with shared
+> long-term memory, inter-agent messaging, your clone ("Michael") orchestrating, scheduled missions, Slack
+> and webhook triggers, realtime voice orchestration, a built-in Monaco IDE with git
+> history and branch compare, markdown previews, and auto-update. The interface runs in
+> English, Simplified Chinese and Arabic, with right to left layout when Arabic is chosen,
+> and its fonts are bundled rather than fetched from a font host. Current version: 0.5.2
+> (September 2026). Desktop app for macOS, Windows, and Linux. No vendor cloud; code never
+> leaves your machine. It covers the same jobs as YC's qm (security postures, background
+> crons/watches, Slack, shared skills) as a simpler local-first desktop app, and adds what
+> a headless harness doesn't have: watchable terminals, voice, an IDE, auto-update.
+
+## Product
+
+- [Homepage](https://the-swain-office.vercel.app/): features, download links, FAQ
+- [GitHub repository](https://github.com/SuchitraSwain/The-Swain-Office): source, issues, releases
+- [Latest release](https://github.com/SuchitraSwain/The-Swain-Office/releases/latest): macOS dmg, Windows setup, Linux AppImage
+- [Changelog](https://github.com/SuchitraSwain/The-Swain-Office/blob/main/CHANGELOG.md)
+
+## Key guides
+
+- [What's up with The Swain Office](https://the-swain-office.vercel.app/blog/whats-up-with-munder-difflin/): everything shipped from v0.3.3 to v0.3.7
+- [Why our auto-update never ran](https://the-swain-office.vercel.app/blog/why-our-auto-update-never-ran/): the v0.3.7 fix — a CommonJS export that vanished into an ESM namespace
+- [What's new in v0.3.5](https://the-swain-office.vercel.app/blog/launching-munder-difflin-v0-3-5/): the v0.3.4+v0.3.5 release wave
+- [How to install and use The Swain Office](https://the-swain-office.vercel.app/blog/how-to-install-and-use-munder-difflin/)
+- [Your first hour with The Swain Office](https://the-swain-office.vercel.app/blog/your-first-hour-with-munder-difflin/)
+- [Frequently asked questions](https://the-swain-office.vercel.app/blog/munder-difflin-faq/)
+- [How the GOD orchestrator works](https://the-swain-office.vercel.app/blog/how-the-god-orchestrator-works/)
+- [How to talk to your orchestrator (voice)](https://the-swain-office.vercel.app/blog/how-to-talk-to-your-orchestrator/)
+- [How to use the built-in Monaco IDE](https://the-swain-office.vercel.app/blog/how-to-use-the-built-in-monaco-ide/)
+
+## Comparisons
+
+- [qm vs The Swain Office](https://the-swain-office.vercel.app/blog/qm-vs-munder-difflin/): YC's multiplayer harness vs a local-first agent office
+- [Claude Squad vs The Swain Office](https://the-swain-office.vercel.app/blog/claude-squad-vs-munder-difflin/)
+- [Best Claude Code multi-agent tools](https://the-swain-office.vercel.app/blog/best-claude-code-multi-agent-tools/)
+
+## Full content
+
+- [Blog index](https://the-swain-office.vercel.app/blog/): 118 articles on multi-agent orchestration, Claude Code, and harness engineering
+- [Sitemap](https://the-swain-office.vercel.app/sitemap.xml)
+- [llms-full.txt](https://the-swain-office.vercel.app/llms-full.txt): extended version of this file

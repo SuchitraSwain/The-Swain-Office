@@ -1,0 +1,25 @@
+# Every pull request gets a review request automatically, so nothing sits waiting
+# for someone to notice it. Ownership here is about routing, not permission.
+#
+# Last match wins, so the specific rules below override the catch-all.
+
+* @SuchitraSwain
+
+# Release, signing and CI plumbing. Breaking these breaks shipping for everyone.
+/.github/workflows/    @SuchitraSwain
+/electron-builder.yml  @SuchitraSwain
+/RELEASE.md            @SuchitraSwain
+/RELEASE-CHECKLIST.md  @SuchitraSwain
+
+# Licensing and attribution. Changes here have legal weight.
+/LICENSE                                  @SuchitraSwain
+/LICENSE-ASSETS                           @SuchitraSwain
+/src/renderer/src/assets/ATTRIBUTION.md    @SuchitraSwain
+
+# Security and privacy surface.
+/SECURITY.md   @SuchitraSwain
+/TELEMETRY.md  @SuchitraSwain
+
+# Public credit for contributors. Adding a name here is a public claim about someone's work.
+/.github/contributors-extra.json  @SuchitraSwain
+/CONTRIBUTORS.md                  @SuchitraSwain

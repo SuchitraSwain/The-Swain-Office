@@ -1,0 +1,13 @@
+src
+out
+node_modules
+hive
+roster.json
+roster-backups
+test
+tools
+blog/node_modules
+landing-remotion
+prototypes
+.claude
+.github

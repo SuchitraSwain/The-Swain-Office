@@ -1,0 +1,5 @@
+- **The Swain Office.** New name, same hive.
+- **After Hours is the default.** Soft dusk chrome, linen text.
+- **Task cards show their id.** `bmt-12` leads the card and the detail view.
+- **New models in the picker.** Fable 5.1, GPT-6 Astra, Gemini 3.7 Flash.
+- **Model catalog updates without a release.** Pickers read the catalog on GitHub.

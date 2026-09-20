@@ -23,6 +23,12 @@ docs/media/*.mov
 # git worktree mounts for hive worker agents — never commit (each is a separate branch checkout)
 .worktrees/
 
+# Local harness home when this checkout is also harnessHome. Keep hive/docs/.
+/roster.json
+/roster-backups/
+/hive/*
+!/hive/docs/
+
 # raw demo screen recordings — only the compressed docs/media/demo/*.mp4 are deployed
 docs/media/MunderDifflin*.mp4
 

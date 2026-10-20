@@ -189,6 +189,9 @@ export interface HarnessConfig {
   registeredRepos: string[];
   /** When true, new agents are spawned with --permission-mode bypassPermissions. */
   autoMode: boolean;
+  /** Schrute Farms Mode — every plan needs a threat model and a rollback before
+   *  merge. Conference briefs and floor dispatches append Dwight's rules when on. */
+  schruteFarmsMode?: boolean;
   /** May the orchestrator ("Michael") spin up agents on its own?
    *
    *  Default FALSE. Spawning an agent is a SPEND decision, so it should not
@@ -424,6 +427,7 @@ const DEFAULTS: HarnessConfig = {
   recentHives: [],
   registeredRepos: [],
   autoMode: true,
+  schruteFarmsMode: false,
   orchestratorMaySpawn: false,
   defaultCommand: 'claude',
   godProvider: 'claude',

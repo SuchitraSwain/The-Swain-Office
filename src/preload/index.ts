@@ -275,6 +275,8 @@ export interface HarnessConfig {
   recentHives?: string[];
   registeredRepos: string[];
   autoMode: boolean;
+  /** Dwight's compliance mode — threat model + rollback before merge. */
+  schruteFarmsMode?: boolean;
   defaultCommand: string;
   defaultModel?: string;
   /** Which provider+model powers the GOD orchestrator ("Michael"). Default

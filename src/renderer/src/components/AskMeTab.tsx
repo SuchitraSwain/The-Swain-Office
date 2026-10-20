@@ -4,7 +4,8 @@ import { PixelButton } from './PixelButton';
 import { PixelBadge } from './PixelBadge';
 import { useStore } from '@/store/store';
 import { MarkdownPreview } from '@/markdown/MarkdownPreview';
-import { type HiveTask, type HumanQA, openQuestion, waitsOnHuman } from './TasksKanban';
+import { type HiveTask, openQuestion, waitsOnHuman } from './TasksKanban';
+import { answerOpenQuestion, dismissOpenQuestion } from './askMeActions';
 import { compareByNewestAsk } from './askMeOrder';
 import { isComposingKey } from '@shared/imeGuard';
 import { useRtl } from '@/i18n/useDirection';
@@ -82,84 +83,26 @@ export function AskMeTab() {
     .filter(waitsOnHuman)
     .sort((a, b) => compareByNewestAsk(openQuestion(a), openQuestion(b)));
 
-  /**
-   * Apply `patch` to the OPEN humanQA entry of one card, on the RAW ledger.
-   * Returns whether it landed.
-   *
-   * Re-reads tasks.json first rather than writing this view's 5s-old snapshot,
-   * because `hive:writeTasks` treats the incoming array as the card MEMBERSHIP:
-   * writing our snapshot back would delete any card the god added since the last
-   * poll. Re-locating the open question by its text also means an answer can
-   * never land on a different question the god swapped in underneath us — in
-   * that case nothing is written and the draft is kept.
-   */
-
   const sendAnswer = async (task: HiveTask) => {
     const text = (drafts[task.id] ?? '').trim();
-    const open = openQuestion(task);
-    if (!text || !open || sending) return;
+    if (!text || sending) return;
     setSending(task.id);
-    try {
-      // 1) Document the answer ON the card.
-      const next = tasks.map((t) => {
-        if (t.id !== task.id) return t;
-        const qa = (t.humanQA ?? []).map((e) =>
-          e === open || (e.q === open.q && !e.a)
-            ? { ...e, a: text, answeredAt: new Date().toISOString() }
-            : e
-        );
-        return { ...t, humanQA: qa };
-      });
-      const updated = next.find((candidate) => candidate.id === task.id);
-      const result = updated
-        ? await window.cth.hivePatchTask(task.id, { humanQA: updated.humanQA })
-        : { ok: false };
-      if (!result.ok) throw new Error('task changed before answer could be saved');
-      setTasks(next);
-      // 2) Tell the god, so the card gets unblocked and work continues.
-      await window.cth.hiveSend({
-        to: 'god',
-        act: 'inform',
-        subject: `HUMAN ANSWER on task "${task.title}"`,
-        body: [
-          `The human answered the open question on task ${task.id} ("${task.title}"):`,
-          `Q: ${open.q}`,
-          `A: ${text}`,
-          'The answer is also recorded in the card\'s humanQA. Act on it, unblock the card, and continue the work.'
-        ].join('\n')
-      }, 'human');
+    const result = await answerOpenQuestion(task.id, text);
+    if (result.ok) {
       setAnswerDraft(task.id, '');
-    } catch { /* leave the draft so the user can retry */ }
+      await refresh();
+    }
     setSending(null);
   };
 
-  // Dismiss the open ask off the ASK ME board WITHOUT answering it. We mark the
-  // open humanQA entry `dismissedAt` (no fabricated answer) so openQuestion()
-  // stops returning it and the card leaves this view — the question itself stays
-  // on the card, so the Q&A history is never dropped (protocol). The task stays
-  // blocked on the kanban; the god can re-ask by appending a fresh humanQA entry.
+  // Dismiss the open ask off the ASK ME board WITHOUT answering it. The question
+  // stays on the card. The task stays blocked; the god can re-ask.
   const dismiss = async (task: HiveTask) => {
-    const open = openQuestion(task);
-    if (!open || sending === task.id) return;
-    const next = tasks.map((t) => {
-      if (t.id !== task.id) return t;
-      const qa = (t.humanQA ?? []).map((e) =>
-        e === open || (e.q === open.q && !e.a && !e.dismissedAt)
-          ? { ...e, dismissedAt: new Date().toISOString() }
-          : e
-      );
-      return { ...t, humanQA: qa };
-    });
-    setTasks(next); // optimistic — the card disappears immediately
-    try {
-      const updated = next.find((candidate) => candidate.id === task.id);
-      const result = updated
-        ? await window.cth.hivePatchTask(task.id, { humanQA: updated.humanQA })
-        : { ok: false };
-      if (!result.ok) throw new Error('task changed before ask could be dismissed');
-    } catch {
-      setTasks(tasks); // restore on failure so the user can retry
-    }
+    if (sending === task.id) return;
+    setSending(task.id);
+    const result = await dismissOpenQuestion(task.id);
+    if (result.ok) await refresh();
+    setSending(null);
   };
 
   return (

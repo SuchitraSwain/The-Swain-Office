@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { CSSProperties } from 'react';
+import { useTranslation } from 'react-i18next';
 import '@xterm/xterm/css/xterm.css';
 import { Icon } from './Icon';
 import { acquireTerminal, attachTerminal, detachTerminal, reflowTerminal } from './terminalPool';
@@ -120,7 +121,9 @@ export interface PtyTerminalViewProps {
 }
 
 export function PtyTerminalView({ ptyId, onStreamData, onUserPrompt, onToggleFullscreen, fullscreen, embedded }: PtyTerminalViewProps) {
+  const { t } = useTranslation();
   const hostRef = useRef<HTMLDivElement | null>(null);
+  const [installNotice, setInstallNotice] = useState<Awaited<ReturnType<typeof window.cth.ptyInstallState>>>(null);
   const onStreamDataRef = useRef(onStreamData);
   onStreamDataRef.current = onStreamData;
   const onUserPromptRef = useRef(onUserPrompt);
@@ -272,6 +275,17 @@ export function PtyTerminalView({ ptyId, onStreamData, onUserPrompt, onToggleFul
     acquireTerminal(ptyId, THEMES[ptyTheme], fontSizeRef.current).term.options.theme = THEMES[ptyTheme];
   }, [ptyTheme, ptyId]);
 
+  // The missing-CLI card. Main already runs the installer in this pty; the card
+  // says what that scrolling text is, including the sign-in the installer may ask for.
+  useEffect(() => {
+    let alive = true;
+    void window.cth.ptyInstallState(ptyId).then((notice) => {
+      if (alive) setInstallNotice(notice);
+    }).catch(() => { /* older preload */ });
+    const off = window.cth.onPtyInstall(ptyId, (notice) => setInstallNotice(notice));
+    return () => { alive = false; off(); };
+  }, [ptyId]);
+
   // Apply font-size (zoom) changes to the pooled terminal and re-fit cols/rows.
   useEffect(() => {
     fontSizeRef.current = fontSize;
@@ -405,6 +419,33 @@ export function PtyTerminalView({ ptyId, onStreamData, onUserPrompt, onToggleFul
           )}
         </div>
       </div>
+      {installNotice && (
+        <div role="status" style={{
+          margin: embedded ? '0 8px 6px' : '0 0 6px',
+          padding: '8px 10px',
+          background: installNotice.failed ? 'var(--cth-coral-light)' : 'var(--cth-paper-200)',
+          boxShadow: 'inset 0 0 0 1px var(--cth-ink-300)',
+          fontFamily: 'var(--cth-font-mono)',
+          fontSize: 12,
+          lineHeight: 1.4,
+          color: 'var(--cth-ink-900)'
+        }}>
+          <div style={{ fontFamily: 'var(--cth-font-ui)', fontWeight: 700, marginBottom: 2 }}>
+            {installNotice.failed
+              ? t('installCard.failedTitle', { engine: installNotice.bin })
+              : installNotice.manual
+              ? t('installCard.manualTitle', { engine: installNotice.bin })
+              : t('installCard.installingTitle', { engine: installNotice.bin })}
+          </div>
+          <div style={{ color: 'var(--cth-ink-700)' }}>
+            {installNotice.failed
+              ? t('installCard.failedBody')
+              : installNotice.manual
+              ? t('installCard.manualBody')
+              : t('installCard.installingBody')}
+          </div>
+        </div>
+      )}
       <div ref={hostRef} onDragOver={onDragOver} onDrop={onDrop} style={{
         flex: 1, minHeight: 0,
         padding: embedded ? '0 8px 8px' : 0

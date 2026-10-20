@@ -39,7 +39,7 @@ export interface ScheduledMission {
   enabled: boolean;
   /** When true, the scheduler asks the renderer to compact live terminals when
    *  this mission fires — but only agents whose context has filled past the bar
-   *  in `contextTrigger.compact` (60% by default, 40% on ~1M-token windows), so
+   *  in `contextTrigger.compact` (30% by default, 20% on ~1M-token windows), so
    *  small/idle sessions are left alone instead of compacting on every tick.
    *
    *  This gate used to be described here but was never actually implemented: every
@@ -123,10 +123,9 @@ export const HEARTBEAT_MISSION: ScheduledMission = {
 export const COMPACT_MAINTENANCE_MISSION: ScheduledMission = {
   id: 'compact-maintenance',
   label: 'Auto-compact (maintenance)',
-  // 2h, matching DEFAULT_CONTEXT_TRIGGER.compact.everyMs. The two cadences must
-  // agree: this mission is the schedule half of the same behaviour the context
-  // trigger now owns, and a 1h seed here would keep interrupting agents on the
-  // old rhythm no matter what the trigger says.
+  // Retired seed, left at 2h. The live cadence is contextTrigger.compact
+  // (40 minutes on an install that has not saved its own). migrateTriggersV1
+  // still keys off the older exact intervals, so this number stays put.
   intervalMs: 7_200_000,
   to: '',
   body: '',

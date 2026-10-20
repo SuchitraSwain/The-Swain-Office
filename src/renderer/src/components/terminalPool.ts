@@ -51,6 +51,8 @@ export interface TerminalEntry {
   /** xterm is only `open()`ed once its host is first attached to the document. */
   opened: boolean;
   exited: boolean;
+  /** Last exit code, set with `exited` and cleared when the pty is relaunched. */
+  exitCode?: number;
   /** Stream subscriptions to tear down on dispose. */
   unsub: Array<() => void>;
   /** Current consumer callbacks — set by whichever view is mounted. */
@@ -203,6 +205,7 @@ export function acquireTerminal(ptyId: string, theme?: ThemeMap, fontSize = 14):
   // stale event is suppressed in the main process and never reaches here.
   entry.unsub.push(window.cth.onPtyExit(ptyId, ({ exitCode, signal }) => {
     entry.exited = true;
+    entry.exitCode = exitCode;
     term.writeln(`\r\n\x1b[2m─ process exited (code ${exitCode}${signal ? `, signal ${signal}` : ''}) ─\x1b[0m`);
   }));
   // A first-time engine-CLI install just finished and the agent is auto
@@ -212,6 +215,7 @@ export function acquireTerminal(ptyId: string, theme?: ThemeMap, fontSize = 14):
   // onto a clean, typeable grid. Mirrors resetTerminal but works on this closure.
   entry.unsub.push(window.cth.onPtyRelaunch(ptyId, () => {
     entry.exited = false;
+    entry.exitCode = undefined;
     try { term.reset(); } catch { /* not yet open */ }
   }));
 
@@ -482,6 +486,27 @@ export function useHasTerminalDraft(ptyId: string | undefined): boolean {
     return () => clearInterval(iv);
   }, [ptyId]);
   return dirty;
+}
+
+/** Whether this agent's process has exited, and the code it left with.
+ *  Polled like the draft badge: the flag lives on the pool, not in React state. */
+export function usePtyExit(ptyId: string | undefined): { exited: boolean; exitCode?: number } {
+  const [state, setState] = useState<{ exited: boolean; exitCode?: number }>({ exited: false });
+  useEffect(() => {
+    if (!ptyId) { setState({ exited: false }); return; }
+    const read = () => {
+      const entry = pool.get(ptyId);
+      const exited = !!entry?.exited;
+      const exitCode = entry?.exitCode;
+      setState((prev) => (
+        prev.exited === exited && prev.exitCode === exitCode ? prev : { exited, exitCode }
+      ));
+    };
+    read();
+    const iv = setInterval(read, 1000);
+    return () => clearInterval(iv);
+  }, [ptyId]);
+  return state;
 }
 
 function automationStateOf(entry: TerminalEntry, now = Date.now()) {
@@ -866,6 +891,7 @@ export function resetTerminal(
   // Re-arm input — a prior exit (or the kill that precedes the respawn) may have
   // latched `exited`, which otherwise makes onData drop keystrokes silently.
   entry.exited = false;
+  entry.exitCode = undefined;
   entry.inputDirty = false;
   entry.inputDirtyAt = 0;
   // The old process's prompt is gone with it — drop our model of that line and

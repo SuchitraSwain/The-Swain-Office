@@ -10,6 +10,8 @@ import { freeflowRecorder, useFreeflow } from '@/freeflow/recorder';
 import { useTerminalFontSize } from './terminalFontSize';
 import { isComposingKey } from '@shared/imeGuard';
 import { useRtl } from '@/i18n/useDirection';
+import { AskMeStrip } from './AskMeStrip';
+import { TempSpawnBox } from './TempSpawnBox';
 
 const EMPTY_QUEUE: QueuedMessage[] = [];
 
@@ -188,6 +190,9 @@ export function MessageQueueComposer({ agent }: MessageQueueComposerProps) {
     : t('queueComposer.sendingOneByOne', { name: agent.name });
 
   return (
+    <>
+    <AskMeStrip agent={agent} />
+    <TempSpawnBox agent={agent} />
     <div
       onDragOver={(e) => { e.preventDefault(); if (!dragOver) setDragOver(true); }}
       onDragLeave={(e) => {
@@ -395,6 +400,7 @@ export function MessageQueueComposer({ agent }: MessageQueueComposerProps) {
         </div>
       </div>
     </div>
+    </>
   );
 }
 

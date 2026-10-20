@@ -6,6 +6,16 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+### Added
+
+- **A missing engine shows a card on its terminal.** If `claude`, `codex`, or another engine is not installed, the terminal already runs that engine's installer. The card says what is happening, including a sign-in the installer may ask for, and it stays up when the install has to be finished by hand.
+- **Ask Me sits on the composer.** An unanswered question on a task shows above that agent's composer. Michael's composer shows every open question. Answering still writes the answer onto the card and mails him.
+- **Temps.** Any lasting agent can start one short-lived worker for a single job. It uses the spawn-request queue that was already there, including the concurrent cap. A request you file runs even when Michael is not allowed to hire on his own. His own requests still wait for that setting.
+
+### Changed
+
+- **New installs spend fewer tokens on context.** Compact now defaults to every 40 minutes once a window is 30% full (20% on a ~1M window). Clear stays off as a timer. After an agent has been on the same in-progress tasks for about an hour, switching to a different set writes `hive/agents/<id>/handoff.md` and then queues that engine's clear. An install that already saved its own context trigger keeps those numbers.
+
 ## [0.5.2] — 2026-09-20
 
 **The Swain Office.** Same hive as the upstream 0.5.2 line, with a new name and a dusk-first chrome.

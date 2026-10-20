@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { PixelPanel } from './PixelPanel';
 import { PixelBadge, StatusKind } from './PixelBadge';
-import { useHasTerminalDraft } from './terminalPool';
+import { useHasTerminalDraft, usePtyExit } from './terminalPool';
 import { SpritePortrait } from './SpritePortrait';
 import { RealtimeMichaelToggle } from './RealtimeMichaelToggle';
 import { CostHud } from '@/realtime/CostHud';
@@ -21,6 +21,12 @@ export interface AgentCardProps {
   ptyId?: string;
   project: string;
   action?: string;
+  /** Engine name, e.g. "Claude Code". Shown with the model on its own line. */
+  engine?: string;
+  /** Full model id. The card shows a short form; the tooltip keeps the id. */
+  model?: string;
+  /** Title of the ledger task this agent is actively doing. */
+  ticketTitle?: string;
   /** Context gauge: 0..8 segments filled (session context ÷ context limit). */
   progress?: number;
   /** Live context size (tokens) — shown in the gauge tooltip. */
@@ -49,19 +55,34 @@ export interface AgentCardProps {
 
 const fmtK = (n: number): string => `${Math.round(n / 1000)}k`;
 
+/** Model ids are long ("claude-opus-4-8[1m]"). Keep the part that distinguishes them. */
+function shortModel(model?: string): string | null {
+  if (!model || !model.trim()) return null;
+  const tail = model.split('/').pop() ?? model;
+  return tail
+    .replace(/^claude-/i, '')
+    .replace(/-\d{8}$/, '')
+    .replace(/\[(\d+)m\]/i, ' $1m')
+    .replace(/-/g, ' ')
+    .trim();
+}
+
 /**
- * v0.3.4 compact redesign: one identity row (name + status), one context line
- * (action while working, repo while idle — both in the tooltip), one note row,
- * and a slim gauge pinned to the bottom edge. Nothing overlaps anything.
+ * One identity row, one engine · model line, one context line (the ticket it is
+ * on, else the live action, else the repo), one note row, and a gauge. When the
+ * process has exited, the gauge becomes a crash strip so a dead terminal is
+ * not an idle card.
  */
 export function AgentCard({
-  name, character, accent, status, ptyId, project, action, progress = 0,
-  contextTokens, contextLimit, selected, isGod, onClick, onRename,
-  doingCount = 0, onTaskNoteClick, draggable, note, onEditNote
+  name, character, accent, status, ptyId, project, action, engine, model,
+  ticketTitle, progress = 0, contextTokens, contextLimit, selected, isGod,
+  onClick, onRename, doingCount = 0, onTaskNoteClick, draggable, note, onEditNote
 }: AgentCardProps) {
   const { t } = useTranslation();
   const [hover, setHover] = useState(false);
   const typing = useHasTerminalDraft(ptyId);
+  const ptyExit = usePtyExit(ptyId);
+  const crashed = ptyExit.exited;
   // IDENTITY and SELECTION are two different things, and conflating them is why
   // selecting Michael appeared to do nothing.
   //
@@ -103,7 +124,7 @@ export function AgentCard({
   // slack that Talk's info mark (which only appears when the OpenAI key is
   // missing) has somewhere to sit rather than pushing the row apart.
   const width = 220;
-  const height = 78;
+  const height = 102;
   const lift = (isGod ? -2 : 0) - (hover ? 1 : 0) - (selected ? 1 : 0);
   /** God's distinction: a tinted surface plus a thin accent border all the way
    *  around — NOT the 3px rule that used to sit on the top edge alone. That rule
@@ -124,8 +145,12 @@ export function AgentCard({
   const outerShadow = [selectionRing, dropShadow === 'none' ? '' : dropShadow]
     .filter(Boolean).join(', ') || 'none';
 
-  // One context line: what it's DOING while working, WHERE it lives while idle.
-  const infoLine = (status !== 'idle' && action) ? action : project;
+  // Ticket first — that is the work. Then the live action. The repo only when idle.
+  const infoLine = ticketTitle
+    ? ticketTitle
+    : (status !== 'idle' && action) ? action : project;
+  const modelShort = shortModel(model);
+  const engineLine = [engine, modelShort].filter(Boolean).join(' · ');
   const noteFirstLine = (note ?? '').split('\n').find((l) => l.trim()) ?? '';
 
   return (
@@ -231,12 +256,25 @@ export function AgentCard({
               <PixelBadge status={typing ? 'typing' : status} style={{ flexShrink: 0 }} />
             </div>
 
-            {/* Context line: action while working, repo while idle. */}
+            {engineLine && (
+              <div
+                title={model ? `${engine ?? ''} ${model}`.trim() : engine}
+                style={{
+                  fontSize: 10.5, lineHeight: '14px',
+                  color: 'var(--cth-ink-700)',
+                  whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis'
+                }}
+              >{engineLine}</div>
+            )}
+
+            {/* Context line: the ticket, else the action, else the repo. */}
             <div
-              title={`${project}${action && status !== 'idle' ? ` — ${action}` : ''}`}
+              title={ticketTitle
+                ? ticketTitle
+                : `${project}${action && status !== 'idle' ? ` — ${action}` : ''}`}
               style={{
                 fontSize: 11, lineHeight: '14px',
-                color: 'var(--cth-ink-500)',
+                color: ticketTitle ? 'var(--cth-ink-900)' : 'var(--cth-ink-500)',
                 whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis'
               }}
             >{infoLine}</div>
@@ -296,17 +334,39 @@ export function AgentCard({
               </div>
             )}
 
-            {/* Context gauge — slim fill bar pinned to the card's bottom edge. */}
-            <div style={{ marginTop: 'auto' }} title={gaugeTitle}>
-              <div style={{
-                height: 4, width: '100%',
-                background: 'var(--cth-cream-200)',
-                boxShadow: 'inset 0 0 0 1px var(--cth-ink-100)',
-                overflow: 'hidden'
-              }}>
-                <div style={{ width: `${pct}%`, height: '100%', background: gaugeColor }} />
+            {crashed ? (
+              <div
+                style={{
+                  marginTop: 'auto',
+                  height: 16,
+                  display: 'flex', alignItems: 'center',
+                  padding: '0 4px',
+                  background: 'var(--cth-coral)',
+                  color: 'var(--cth-on-accent)',
+                  fontFamily: 'var(--cth-font-display)',
+                  fontSize: 10, lineHeight: '14px', letterSpacing: '0.02em',
+                  whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis'
+                }}
+                title={ptyExit.exitCode !== undefined
+                  ? t('agentCard.crashedCode', { code: ptyExit.exitCode })
+                  : t('agentCard.crashed')}
+              >
+                {ptyExit.exitCode !== undefined
+                  ? t('agentCard.crashedCode', { code: ptyExit.exitCode })
+                  : t('agentCard.crashed')}
               </div>
-            </div>
+            ) : (
+              <div style={{ marginTop: 'auto' }} title={gaugeTitle}>
+                <div style={{
+                  height: 4, width: '100%',
+                  background: 'var(--cth-cream-200)',
+                  boxShadow: 'inset 0 0 0 1px var(--cth-ink-100)',
+                  overflow: 'hidden'
+                }}>
+                  <div style={{ width: `${pct}%`, height: '100%', background: gaugeColor }} />
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </PixelPanel>

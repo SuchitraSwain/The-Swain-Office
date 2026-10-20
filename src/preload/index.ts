@@ -227,6 +227,14 @@ export interface SpawnPtyOptions {
 
 export interface PtyExit { exitCode: number; signal?: number | undefined }
 
+/** Shown on the terminal while a missing engine CLI is being installed. */
+export interface PtyInstallNotice {
+  bin: string;
+  provider?: string;
+  manual: boolean;
+  failed?: boolean;
+}
+
 /** A recurring auto-dispatched mission fired on an interval by the scheduler. */
 export interface ScheduledMission {
   id: string;
@@ -623,6 +631,15 @@ const api = {
     ipcRenderer.on(channel, listener);
     return () => ipcRenderer.removeListener(channel, listener);
   },
+  /** The missing-CLI card for this pty, or null once the real CLI is launching. */
+  ptyInstallState: (id: string): Promise<PtyInstallNotice | null> =>
+    ipcRenderer.invoke('pty:installState', id),
+  onPtyInstall: (id: string, cb: (notice: PtyInstallNotice | null) => void): (() => void) => {
+    const channel = `pty:install:${id}`;
+    const listener = (_e: IpcRendererEvent, notice: PtyInstallNotice | null) => cb(notice ?? null);
+    ipcRenderer.on(channel, listener);
+    return () => ipcRenderer.removeListener(channel, listener);
+  },
 
   // ─── Dialog ──────────────────────────────────────────────────────────────
   chooseFolder: (): Promise<{ ok: true; path: string } | { ok: false; error: string }> =>
@@ -781,6 +798,18 @@ const api = {
   /** Manually stop a live ephemeral worker (safety-gated teardown; work preserved). */
   stopWorker: (workerId: string): Promise<{ ok: boolean; error?: string }> =>
     ipcRenderer.invoke('workers:stop', workerId),
+  /** File one human spawn-request. The watcher starts it, or leaves it queued
+   *  when the worker cap is already full (`waiting`). */
+  enqueueWorker: (body: {
+    objective: string;
+    cwd: string;
+    command?: string;
+    provider?: string;
+    model?: string;
+    fromAgentId?: string;
+    fromAgentName?: string;
+  }): Promise<{ ok: true; id: string; waiting: boolean } | { ok: false; error: string }> =>
+    ipcRenderer.invoke('workers:enqueue', body),
 
   // ─── Semantic memory (MemPalace CLI) ─────────────────────────────────────
   memoryStatus: (): Promise<MemoryStatus> => ipcRenderer.invoke('hive:memoryStatus'),
@@ -1080,6 +1109,9 @@ const api = {
     id: string,
     patch: Partial<Omit<HiveTask, 'id'>>
   ): Promise<{ ok: boolean; error?: string }> => ipcRenderer.invoke('hive:patchTask', id, patch),
+  /** Prepend a work-switch handoff to hive/agents/<id>/handoff.md. */
+  writeHandoff: (agentId: string, markdown: string): Promise<{ ok: boolean; error?: string }> =>
+    ipcRenderer.invoke('hive:writeHandoff', agentId, markdown),
   /** Atomically remove one named card from the latest main-process ledger. */
   hiveDeleteTask: (id: string): Promise<{ ok: boolean; error?: string }> =>
     ipcRenderer.invoke('hive:deleteTask', id),

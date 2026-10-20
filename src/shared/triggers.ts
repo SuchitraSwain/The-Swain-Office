@@ -118,24 +118,28 @@ export const DEFAULT_COMPACTION_FOCUS =
   'Keep the current task, recent decisions, open questions, and file paths in play. Drop resolved tangents.';
 
 /**
- * Defaults are deliberately TWICE the old cadence and TWICE the previously
- * documented pressure bar.
+ * New installs compact when a window actually fills, and they check often
+ * enough that a full window does not sit for hours.
  *
- * History: `main/config.ts` documented a 30% / 20% context gate that was never
- * actually implemented — every live agent got compacted on every tick, hourly.
- * This makes the gate real and sets it at 2x, so compaction now costs an agent
- * half as many interruptions.
+ * History: an early doc described a 30% / 20% gate that was never implemented,
+ * so every live agent was compacted hourly. A later default doubled both the
+ * wait and the bar (2h, 60% / 40%). That saved interruptions and spent tokens.
+ * The 30% / 20% bar is the default again, checked every 40 minutes. The
+ * pressure gate is still real: an empty window is left alone.
  *
- * Auto-clear ships DISABLED. `/clear` is destructive — it discards context rather
- * than summarising it, and the codebase already gates the manual verb behind a
- * spoken confirm word. Turning it on is an explicit operator choice.
+ * Saved `contextTrigger` values win over these defaults. An install that
+ * already stored its own cadence keeps it.
+ *
+ * Auto-clear stays DISABLED as a timer. `/clear` drops the terminal instead of
+ * summarising it. The work-switch path writes `handoff.md` and then clears,
+ * and only after a stretch of work has already run for about an hour.
  */
 export const DEFAULT_CONTEXT_TRIGGER: ContextTriggerConfig = {
   compact: {
     enabled: true,
-    everyMs: 7_200_000, // 2h — was 1h
-    minContextPct: 60, // was a documented-but-unenforced 30
-    minContextPctLargeWindow: 40, // was a documented-but-unenforced 20
+    everyMs: 40 * 60 * 1000,
+    minContextPct: 30,
+    minContextPctLargeWindow: 20,
     message: DEFAULT_COMPACTION_FOCUS
   },
   clear: {

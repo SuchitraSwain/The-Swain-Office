@@ -22,6 +22,7 @@ import { inboxNudgeText } from '../../../shared/hiveNudge';
 import { resolveGodName } from '../../../shared/godIdentity';
 import { acquireTerminal, resetTerminal, isTerminalAutomationSafe } from '@/components/terminalPool';
 import { canDeliverToAgent, deliverWithAcknowledgement, checkPrecondition } from './queueDelivery';
+import { runWorkSwitchClear, type WorkStretch } from './workSwitchClear';
 import { OFFICE_CAST, DEFAULT_CHARACTER } from '@/scene/office/cast';
 
 const GOD_ID = 'god';
@@ -330,6 +331,10 @@ export function useHive(config: HarnessConfig | null): void {
   // mid-revive) within REVIVE_DEBOUNCE_MS is skipped. Set BEFORE the async spawn
   // so a re-entrant event can't race a second respawn for the same id.
   const reviving = useRef<Record<string, number>>({});
+  // Per lasting agent: when the current set of in-progress tasks started, and
+  // which task ids they are. A different set after ~60 minutes writes
+  // handoff.md and queues a clear. See workSwitchClear.ts.
+  const workStretch = useRef<Record<string, WorkStretch>>({});
   // Reactive so the assistant bootstrap (effect #1b) re-runs once Michael is ready.
   const godStatus = useStore((s) => s.godStatus);
   // Per-pty `lastOutputAt`, refreshed by the quiescence sweep (#2e) and read by
@@ -1083,8 +1088,8 @@ export function useHive(config: HarnessConfig | null): void {
   //    hourly, however empty its window was. This makes the documented behaviour
   //    real — `rule.minContextPct`, or `minContextPctLargeWindow` once the window
   //    is >= LARGE_CONTEXT_WINDOW, must be met before an agent is interrupted.
-  //    (The shipped bars are now 60/40, twice the stale doc's numbers; see
-  //    DEFAULT_CONTEXT_TRIGGER. The doc comment in config.ts is still stale.)
+  //    A new install checks every 40 minutes and compacts once the window is
+  //    30% full (20% on a ~1M window). A saved contextTrigger keeps its own.
   //
   //    Dedupe generalises to both actions: keyed on the command's own verb, so a
   //    queued `/compact` blocks a second compact without blocking a `/clear`.
@@ -1245,5 +1250,32 @@ export function useHive(config: HarnessConfig | null): void {
       if (!dead.length) return; // healthy wake — nothing wedged, no-op
       for (const id of dead) void revive(id);
     });
+  }, [config?.onboardingComplete]);
+
+  // 8) Clear on a switch of work. Compact stays on the context trigger. This
+  //    path is the one that discards a terminal, and only after handoff.md is
+  //    on disk and the stretch of work has already run for about an hour.
+  useEffect(() => {
+    if (!config?.onboardingComplete) return;
+    let stopped = false;
+    let running = false;
+    const tick = async (): Promise<void> => {
+      if (stopped || running) return;
+      running = true;
+      try {
+        await runWorkSwitchClear({
+          quietMs: ptyQuietMs,
+          quiesceMs: QUIESCE_IDLE_MS,
+          stretches: workStretch.current
+        });
+      } catch (err) {
+        console.error('[work-switch] clear failed', err);
+      } finally {
+        running = false;
+      }
+    };
+    void tick();
+    const timer = setInterval(() => { void tick(); }, 20_000);
+    return () => { stopped = true; clearInterval(timer); };
   }, [config?.onboardingComplete]);
 }

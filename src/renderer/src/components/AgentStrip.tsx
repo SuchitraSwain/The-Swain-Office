@@ -7,6 +7,7 @@ import { useStore, type Agent } from '@/store/store';
 import { type HarnessConfig } from '@/store/config';
 import { useRestoreTeam } from '@/hooks/useRestoreTeam';
 import { useRtl } from '@/i18n/useDirection';
+import { providerPreset } from '@shared/agentProvider';
 
 export interface AgentStripProps {
   /** Needed to rebuild a spawn command when a restorable agent predates the
@@ -60,17 +61,18 @@ export function AgentStrip({ config }: AgentStripProps) {
   const cardRefs = useRef<Record<string, HTMLDivElement | null>>({});
   // Each worker's actively-DOING ledger tasks, polled from hive/tasks.json —
   // rendered as a sticky note on the avatar card (click → task detail).
-  const [doingByAgent, setDoingByAgent] = useState<Record<string, string[]>>({});
+  const [doingByAgent, setDoingByAgent] = useState<Record<string, Array<{ id: string; title: string }>>>({});
   useEffect(() => {
     let cancelled = false;
     const poll = async () => {
       try {
-        const raw = await window.cth.hiveTasks() as { tasks?: Array<{ id?: string; status?: string; assignee?: string }> } | null;
+        const raw = await window.cth.hiveTasks() as { tasks?: Array<{ id?: string; title?: string; status?: string; assignee?: string }> } | null;
         if (cancelled) return;
-        const map: Record<string, string[]> = {};
+        const map: Record<string, Array<{ id: string; title: string }>> = {};
         for (const t of (raw && Array.isArray(raw.tasks)) ? raw.tasks : []) {
           if (t?.status === 'doing' && typeof t.assignee === 'string' && t.assignee && typeof t.id === 'string') {
-            (map[t.assignee] = map[t.assignee] ?? []).push(t.id);
+            const title = typeof t.title === 'string' && t.title.trim() ? t.title.trim() : t.id;
+            (map[t.assignee] = map[t.assignee] ?? []).push({ id: t.id, title });
           }
         }
         setDoingByAgent(map);
@@ -92,8 +94,8 @@ export function AgentStrip({ config }: AgentStripProps) {
       background: 'var(--cth-cream-200)',
       // Tall enough for the god card to stand proud of the row (it's taller and
       // rides a drop shadow) plus the hover-lift on every card, without clipping.
-      height: 112,
-      minHeight: 112,
+      height: 136,
+      minHeight: 136,
       alignItems: 'center'
     }}>
       {agents.map(a => (
@@ -140,6 +142,9 @@ export function AgentStrip({ config }: AgentStripProps) {
             ptyId={a.ptyId}
             project={a.project}
             action={a.action}
+            engine={a.provider ? providerPreset(a.provider).label : (a.command || undefined)}
+            model={a.model}
+            ticketTitle={doingByAgent[a.id]?.[0]?.title}
             progress={a.progress}
             contextTokens={a.contextTokens}
             contextLimit={a.contextLimit}
@@ -150,7 +155,7 @@ export function AgentStrip({ config }: AgentStripProps) {
             doingCount={doingByAgent[a.id]?.length ?? 0}
             onTaskNoteClick={() => {
               const first = doingByAgent[a.id]?.[0];
-              if (first) openTaskDetail(first);
+              if (first) openTaskDetail(first.id);
             }}
             note={a.note}
             onEditNote={a.isGod ? undefined : () => setNoteEditId(a.id)}

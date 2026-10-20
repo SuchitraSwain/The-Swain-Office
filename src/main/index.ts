@@ -234,6 +234,21 @@ const ptyToAgent = new Map<string, string>();
  *  install disabled) so the freshly-installed CLI launches in the SAME pty/window —
  *  no user click. Cleared the moment it's consumed, so it can never loop installs. */
 const pendingInstallRelaunch = new Map<string, { opts: AgentSpawnOptions; owner: Electron.WebContents | null; bin: string; rung: string }>();
+/** What the terminal card should say while a first-run CLI install is on screen. */
+interface InstallNotice {
+  bin: string;
+  provider?: string;
+  manual: boolean;
+  failed?: boolean;
+}
+const installNotices = new Map<string, InstallNotice>();
+
+function publishInstallNotice(id: string, notice: InstallNotice | null, owner: Electron.WebContents | null): void {
+  if (notice) installNotices.set(id, notice);
+  else installNotices.delete(id);
+  const wc = owner && !owner.isDestroyed() ? owner : liveWebContents();
+  try { wc?.send(`pty:install:${id}`, notice); } catch { /* window gone */ }
+}
 const hive = new HiveManager(
   () => readConfig().harnessHome,
   (channel, payload) => {
@@ -613,12 +628,21 @@ ptyManager.setExitHandler((id, exitCode, info) => {
       // re-enable input) so the freshly-spawned CLI paints onto a clean, typeable
       // grid, then re-run the normal spawn — which now finds the installed binary.
       const wc = (pending.owner && !pending.owner.isDestroyed()) ? pending.owner : liveWebContents();
+      publishInstallNotice(id, null, wc);
       try { wc?.send(`pty:relaunch:${id}`); } catch { /* window gone */ }
       void spawnAgentCore({ ...pending.opts, noAutoInstall: true }, pending.owner);
       return; // an install PTY has no agent/worktree to tear down
     }
     // Non-zero exit = install failed; leave its honest manual-fix message on screen.
     analytics.track('agent_install_finished', { provider, rung: pending.rung, outcome: 'install_failed' });
+    const failedWc = (pending.owner && !pending.owner.isDestroyed()) ? pending.owner : liveWebContents();
+    const prior = installNotices.get(id);
+    publishInstallNotice(id, {
+      bin: prior?.bin ?? pending.bin,
+      provider: prior?.provider ?? provider,
+      manual: true,
+      failed: true
+    }, failedWc);
   }
   teardownPty(id);
 });
@@ -2679,6 +2703,7 @@ async function spawnAgentCore(opts: AgentSpawnOptions, owner: Electron.WebConten
       // to replace.
       if (res.ok && rung.command) {
         pendingInstallRelaunch.set(opts.id, { opts, owner, bin, rung: rung.kind });
+        publishInstallNotice(opts.id, { bin, provider, manual: false }, owner);
         // The auto-installer PTY is running; agent_install_finished on its exit says
         // whether it actually produced an agent (rung is non-manual here by construction).
         analytics.track('agent_install_started', { provider, rung: rung.kind });
@@ -2686,6 +2711,7 @@ async function spawnAgentCore(opts: AgentSpawnOptions, owner: Electron.WebConten
         // Manual rung: the PTY only printed a hint (no installer to run, no relaunch
         // armed), so no agent will start. This is the Mode 2 case that used to send
         // NOTHING — an absent engine with no unattended install path.
+        publishInstallNotice(opts.id, { bin, provider, manual: true }, owner);
         analytics.track('agent_spawn_failed', { provider, reason: 'cli_missing' });
       } else {
         // The install PTY itself failed to spawn (cwd gone, id clash, throw).
@@ -2695,6 +2721,7 @@ async function spawnAgentCore(opts: AgentSpawnOptions, owner: Electron.WebConten
       return res;
     }
   }
+  if (installNotices.has(opts.id)) publishInstallNotice(opts.id, null, owner);
   // Git isolation: when requested and the cwd is a real repo, give this agent
   // its own worktree on an `agent/<id>` branch so it can't clobber other agents'
   // (or the user's) working tree. Best-effort — a failure falls back to the
@@ -3028,6 +3055,10 @@ ipcMain.handle('pty:kill', (_evt, id: string) => {
   return res;
 });
 ipcMain.handle('pty:list', () => ptyManager.list());
+ipcMain.handle('pty:installState', (_evt, id: unknown) => {
+  if (typeof id !== 'string') return null;
+  return installNotices.get(id) ?? null;
+});
 
 // ─── IPC: analytics (the ONE renderer-facing seam) ──────────────────────────
 /** Count one human-sent message (TELEMETRY.md → `message_sent`). A COUNT, and
@@ -3499,6 +3530,30 @@ ipcMain.handle('hive:patchTask', (_evt, id: unknown, patch: unknown) => {
   }
   if (!hive.enabled()) return { ok: false, error: 'hive disabled (no harnessHome)' };
   return { ok: hive.patchTask(id, patch as Partial<Omit<HiveTask, 'id'>>) };
+});
+ipcMain.handle('hive:writeHandoff', (_evt, agentId: unknown, markdown: unknown) => {
+  if (typeof agentId !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(agentId)) {
+    return { ok: false, error: 'bad agent id' };
+  }
+  if (typeof markdown !== 'string' || !markdown.trim() || markdown.length > 60_000) {
+    return { ok: false, error: 'bad handoff' };
+  }
+  const root = hive.root();
+  if (!root) return { ok: false, error: 'hive disabled (no harnessHome)' };
+  try {
+    const dir = join(root, 'agents', agentId);
+    mkdirSync(dir, { recursive: true });
+    const file = join(dir, 'handoff.md');
+    let prior = '';
+    try { prior = readFileSync(file, 'utf8'); } catch { /* first handoff */ }
+    const next = prior.trim()
+      ? `${markdown.trim()}\n\n---\n\n${prior.trim()}\n`
+      : `${markdown.trim()}\n`;
+    writeFileSync(file, next.slice(0, 80_000), 'utf8');
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : String(e) };
+  }
 });
 ipcMain.handle('hive:deleteTask', (_evt, id: unknown) => {
   if (typeof id !== 'string' || !id) return { ok: false, error: 'invalid task id' };
@@ -4562,8 +4617,10 @@ completionWatcher.start();
 // unintegrated work. Every terminal failure informs god WITH the Slack coords so
 // god closes the Slack loop; the success path is the worker replying in-thread.
 
-/** A spawn-request god drops into HIVE_ROOT/spawn-requests/<id>.json. god authors
- *  these directly; `objective` and `cwd` are the only required fields. */
+/** A spawn-request dropped into HIVE_ROOT/spawn-requests/<id>.json. god authors
+ *  these directly; a person can too, from an agent's temp control. `objective`
+ *  and `cwd` are the only required fields. `requestedBy: "human"` is drained
+ *  even when the orchestrator is not allowed to hire on his own. */
 interface SpawnRequest {
   id?: string;
   objective?: string;
@@ -4572,6 +4629,7 @@ interface SpawnRequest {
   model?: string;                                     // optional --model override (Claude)
   cwd?: string;                                        // repo the worker (and its worktree) runs in
   name?: string;                                       // display name
+  requestedBy?: 'human' | 'god';
   slack?: { channel: string; thread_ts: string };     // reply target + where failures surface
   isolate?: boolean;                                   // default true (fresh worktree)
   tokenCap?: number;                                   // optional per-worker token cap (advisory P1)
@@ -4598,6 +4656,18 @@ let workerTickRunning = false;
 function spawnRequestsDir(): string | null {
   const root = hive.root();
   return root ? join(root, 'spawn-requests') : null;
+}
+
+/** True when a queued file was filed by a person, or cannot be parsed.
+ *  Unreadable files must still reach processSpawnRequest so they are archived
+ *  to .failed instead of sitting in the queue forever while god-spawn is off. */
+function humanOrUnreadableRequest(filePath: string): boolean {
+  try {
+    const raw = JSON.parse(readFileSync(filePath, 'utf8')) as { requestedBy?: unknown };
+    return raw.requestedBy === 'human';
+  } catch {
+    return true;
+  }
 }
 
 /** Move a processed request out of the queue so it's never reprocessed. */
@@ -4930,16 +5000,23 @@ async function ephemeralWorkerTick(): Promise<void> {
     //     already running — reaping, teardown, the Slack failure notice — and
     //     turning the toggle off mid-flight must not strand them.
     //
-    //     Declining also means declining to CONSUME. A request dropped in while
-    //     this is off stays in the queue and runs when it is turned on, rather
-    //     than being eaten and failed for a reason god never asked about.
-    const dir = readConfig().orchestratorMaySpawn ? spawnRequestsDir() : null;
+    //     Declining also means declining to CONSUME a god-authored file. A request
+    //     dropped in while this is off stays in the queue and runs when it is
+    //     turned on, rather than being eaten and failed for a reason god never
+    //     asked about. A file the person filed (`requestedBy: "human"`) is the
+    //     person hiring, so it drains under the same cap either way. An
+    //     unreadable file is drained too, so processSpawnRequest can fail it
+    //     instead of leaving a poison file in the queue forever.
+    const allowGod = readConfig().orchestratorMaySpawn === true;
+    const dir = spawnRequestsDir();
     if (dir && existsSync(dir)) {
       let files: string[] = [];
       try { files = readdirSync(dir).filter(f => f.endsWith('.json')).sort(); } catch { /* dir vanished */ }
       for (const f of files) {
         if (liveWorkers.size >= maxWorkers) break;
-        await processSpawnRequest(join(dir, f));
+        const fp = join(dir, f);
+        if (!allowGod && !humanOrUnreadableRequest(fp)) continue;
+        await processSpawnRequest(fp);
       }
     }
 
@@ -5019,6 +5096,62 @@ ipcMain.handle('workers:list', (): { live: WorkerSnapshot[]; preserved: Preserve
     workerId: e.workerId, wtPath: e.wtPath, baseBranch: e.baseBranch, preservedAt: e.preservedAt
   }));
   return { live, preserved, maxWorkers: Math.max(1, cfg.maxConcurrentWorkers ?? 4) };
+});
+
+/** A person starts one short-lived worker from an agent's desk. Writes the same
+ *  spawn-request JSON the watcher already drains. Does not flip
+ *  orchestratorMaySpawn: god still cannot hire until that setting is on. */
+ipcMain.handle('workers:enqueue', (_evt, body: unknown) => {
+  const root = hive.root();
+  const dir = spawnRequestsDir();
+  if (!root || !dir) return { ok: false as const, error: 'hive disabled (no harnessHome)' };
+  if (!body || typeof body !== 'object') return { ok: false as const, error: 'bad request' };
+  const src = body as {
+    objective?: unknown;
+    cwd?: unknown;
+    command?: unknown;
+    provider?: unknown;
+    model?: unknown;
+    fromAgentId?: unknown;
+    fromAgentName?: unknown;
+  };
+  const objective = typeof src.objective === 'string' ? src.objective.trim() : '';
+  if (!objective || objective.length > 8000) return { ok: false as const, error: 'objective is required' };
+  const cwd = typeof src.cwd === 'string' ? expandTilde(src.cwd.trim()) : '';
+  if (!cwd) return { ok: false as const, error: 'cwd is required' };
+  try {
+    if (!statSync(cwd).isDirectory()) return { ok: false as const, error: 'cwd is not a folder' };
+  } catch {
+    return { ok: false as const, error: 'cwd not found' };
+  }
+  const command = typeof src.command === 'string' ? src.command.replace(/[\r\n]/g, ' ').trim().slice(0, 500) : '';
+  const model = typeof src.model === 'string' ? src.model.replace(/[\r\n]/g, '').trim().slice(0, 120) : '';
+  const provider = typeof src.provider === 'string' ? src.provider.replace(/[\r\n]/g, '').trim().slice(0, 40) : '';
+  const fromId = typeof src.fromAgentId === 'string' ? src.fromAgentId.replace(/[^\w.-]/g, '').slice(0, 80) : '';
+  const fromName = typeof src.fromAgentName === 'string'
+    ? src.fromAgentName.replace(/[\r\n]/g, ' ').trim().slice(0, 80)
+    : '';
+  const id = `h${randomBytes(4).toString('hex')}`;
+  const who = fromName || fromId || 'an agent';
+  const request: SpawnRequest = {
+    id,
+    requestedBy: 'human',
+    objective: `[Started by ${who}${fromId ? ` (${fromId})` : ''} for one job.]\n\n${objective}`,
+    cwd,
+    isolate: true,
+    name: `Temp · ${who}`.slice(0, 80)
+  };
+  if (command) request.command = command;
+  if (model) request.model = model;
+  if (provider) request.provider = provider as AgentProvider;
+  try {
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, `${id}.json`), JSON.stringify(request, null, 2), 'utf8');
+  } catch (e) {
+    return { ok: false as const, error: e instanceof Error ? e.message : String(e) };
+  }
+  const maxWorkers = Math.max(1, readConfig().maxConcurrentWorkers ?? 4);
+  return { ok: true as const, id, waiting: liveWorkers.size >= maxWorkers };
 });
 
 /** Manually stop a live ephemeral worker. Mirrors the done-release path: mark

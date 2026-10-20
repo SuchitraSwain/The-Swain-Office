@@ -90,11 +90,14 @@
     "editNote": "Edit private note",
     "addNote": "Add private note",
     "editNoteAria": "Edit note for {{name}}",
-    "noteAria": "Note for {{name}}"
+    "noteAria": "Note for {{name}}",
+    "crashed": "Terminal stopped",
+    "crashedCode": "Terminal stopped · {{code}}"
   },
   "askMe": {
     "emptyTitle": "Nothing needs you right now. 🌿",
-    "emptySub": "When the team blocks a task on your input — a question to answer or a to-do only you can perform — it shows up here (and on the ASK ME board on the floor).",
+    "emptySub": "When the team blocks a task on your input — a question to answer or a to-do only you can perform — it shows up here, on the floor, and above that agent's composer.",
+    "inboxTitle": "Waiting on you ({{count}})",
     "openDetail": "open the full task detail",
     "dismissTitle": "dismiss — clear this off the ASK ME board without answering (history kept)",
     "dismissAria": "dismiss this ask",
@@ -1193,7 +1196,27 @@
     "uncapped": "uncapped",
     "preserved": "Preserved worktrees ({{count}})",
     "preservedIntro": "Finished workers whose worktree held un-integrated work — kept (never auto-discarded) and auto-reclaimed once the work lands in its base branch.",
-    "keptAgo": "kept {{age}} ago"
+    "keptAgo": "kept {{age}} ago",
+    "startTempTitle": "Start a temp",
+    "startTemp": "Start a temp from {{name}}",
+    "tempFor": "One job for {{name}}",
+    "tempObjective": "What should this worker do?",
+    "tempStart": "Start",
+    "tempStarting": "Starting…",
+    "tempCancel": "Cancel",
+    "tempHint": "Its own worktree, one job, then it closes. If every worker slot is taken, this waits in line.",
+    "tempStarted": "Starting. It shows up under live workers in a moment.",
+    "tempQueued": "Queued. It starts when a worker slot frees up.",
+    "tempFailed": "Could not file that request.",
+    "tempNeedAgent": "Select an agent on the floor. The temp uses that agent's folder and engine."
+  },
+  "installCard": {
+    "installingTitle": "Installing {{engine}}",
+    "installingBody": "This terminal is installing it now. If it asks you to sign in, do that here. The agent starts on its own when the install finishes.",
+    "manualTitle": "{{engine}} is not installed",
+    "manualBody": "There is no automatic install for this one. Install it yourself, then start the agent again. The terminal has the exact step.",
+    "failedTitle": "{{engine}} did not finish installing",
+    "failedBody": "The terminal has what went wrong. Fix that, then start the agent again."
   },
   "memoryGraph": {
     "topics": "topics",

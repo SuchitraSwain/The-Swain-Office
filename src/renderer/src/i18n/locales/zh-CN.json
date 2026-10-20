@@ -90,11 +90,14 @@
     "editNote": "编辑私人笔记",
     "addNote": "添加私人笔记",
     "editNoteAria": "编辑 {{name}} 的笔记",
-    "noteAria": "{{name}} 的笔记"
+    "noteAria": "{{name}} 的笔记",
+    "crashed": "终端已停止",
+    "crashedCode": "终端已停止 · {{code}}"
   },
   "askMe": {
     "emptyTitle": "现在没有需要你的事。🌿",
-    "emptySub": "当团队把任务卡在你的输入上——要回答的问题，或只有你能完成的待办——就会出现在这里（也会出现在楼层的「问我」看板上）。",
+    "emptySub": "当团队把任务卡在你的输入上——要回答的问题，或只有你能完成的待办——就会出现在这里、楼层上，以及该智能体的输入框上方。",
+    "inboxTitle": "在等你（{{count}}）",
     "openDetail": "打开完整任务详情",
     "dismissTitle": "忽略——不回答，把它从「问我」看板清掉（历史记录保留）",
     "dismissAria": "忽略此提问",
@@ -1193,7 +1196,27 @@
     "uncapped": "无上限",
     "preserved": "保留的工作树（{{count}}）",
     "preservedIntro": "已完成工人的工作树中保留着未整合的工作——保留（绝不自动丢弃），并在工作合入其基础分支后自动回收。",
-    "keptAgo": "{{age}} 前保留"
+    "keptAgo": "{{age}} 前保留",
+    "startTempTitle": "启动临时工人",
+    "startTemp": "从 {{name}} 启动临时工人",
+    "tempFor": "{{name}} 的一项工作",
+    "tempObjective": "这个工人要做什么？",
+    "tempStart": "启动",
+    "tempStarting": "正在启动…",
+    "tempCancel": "取消",
+    "tempHint": "它有自己的工作树，做完这一项就关闭。工人名额已满时，请求会排队等待。",
+    "tempStarted": "正在启动。稍候它会出现在活跃工人里。",
+    "tempQueued": "已排队。有工人名额空出来就会启动。",
+    "tempFailed": "没能提交这个请求。",
+    "tempNeedAgent": "先在楼层上选一个智能体。临时工人使用该智能体的文件夹和引擎。"
+  },
+  "installCard": {
+    "installingTitle": "正在安装 {{engine}}",
+    "installingBody": "这个终端正在安装。如果它要求登录，就在这里完成。安装结束后智能体会自己启动。",
+    "manualTitle": "尚未安装 {{engine}}",
+    "manualBody": "这一项没有自动安装。请自行安装，然后重新启动智能体。终端里写着具体步骤。",
+    "failedTitle": "{{engine}} 没有安装完成",
+    "failedBody": "终端里写着失败原因。处理之后再重新启动智能体。"
   },
   "memoryGraph": {
     "topics": "主题",

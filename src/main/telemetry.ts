@@ -27,6 +27,9 @@
  * any `electron` import so it can be smoke-tested as a plain Node module.
  */
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
+import { readFileSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
 import { readAgentUsage } from './transcript';
 import { normalizeModel } from './pricing';
 
@@ -188,7 +191,7 @@ export class TelemetryCollector {
   getAgentUsage(agentId: string): AgentUsageSample | null {
     const live = this.aggregateLive(agentId);
     if (live) return live;
-    return this.transcriptFallback(agentId);
+    return this.grokFallback(agentId) ?? this.transcriptFallback(agentId);
   }
 
   /** Push (additive, OTel-only). Fires the agent's fresh aggregate whenever new
@@ -447,6 +450,36 @@ export class TelemetryCollector {
       model: u.model ?? '',
       usd: u.estimatedCostUsd
     };
+  }
+
+  /** Grok's cumulative usage.json. Null when the file is not there (any non-Grok agent). */
+  private grokFallback(agentId: string): AgentUsageSample | null {
+    const cwd = this.resolveCwd?.(agentId);
+    const sessionId = this.resolveSessionId?.(agentId);
+    if (!cwd || !sessionId) return null;
+    const file = join(homedir(), '.grok', 'sessions', encodeURIComponent(cwd), sessionId, 'usage.json');
+    try {
+      const parsed = JSON.parse(readFileSync(file, 'utf8')) as {
+        updatedAt?: unknown;
+        session?: Record<string, unknown>;
+      };
+      const totals = parsed.session;
+      if (!totals) return null;
+      const ts = Date.parse(String(parsed.updatedAt ?? ''));
+      return {
+        agentId,
+        sessionId,
+        ts: Number.isFinite(ts) ? ts : Date.now(),
+        input: numAttr(totals.inputTokens),
+        output: numAttr(totals.outputTokens),
+        cacheRead: numAttr(totals.cachedReadTokens),
+        cacheCreation: numAttr(totals.cacheCreationTokens),
+        model: normalizeModel(String(totals.primaryModelId ?? '')),
+        usd: numAttr(totals.costUsdTicks) / 1e10
+      };
+    } catch {
+      return null;
+    }
   }
 
   private publishUsage(agentId: string): void {

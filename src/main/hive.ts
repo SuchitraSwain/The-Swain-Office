@@ -53,6 +53,13 @@ type McpDefaultsMap = { [id: string]: { enabled: boolean } } | undefined;
 
 export type MessageAct = 'request' | 'inform' | 'propose' | 'query' | 'agree' | 'refuse' | 'done';
 
+/** What `settleInbox` did to a released worker's mailbox. */
+export interface SettledInbox {
+  moved: number;
+  kept: number;
+  unanswered: Array<{ id: string; act: MessageAct; from: string; subject: string; conversation: string }>;
+}
+
 export interface HiveMessage {
   id: string;
   conversation: string;
@@ -1013,6 +1020,43 @@ export class HiveManager {
     } catch { /* best-effort — never crash a lifecycle handler */ }
   }
 
+  /** File unread mail that was already in the inbox when a worker signaled done.
+   *  Mail created after `before` stays pending. Best-effort — never throws. */
+  settleInbox(id: string, before = Number.POSITIVE_INFINITY): SettledInbox {
+    const out: SettledInbox = { moved: 0, kept: 0, unanswered: [] };
+    const root = this.root();
+    if (!root) return out;
+    const inbox = join(root, 'agents', id, 'inbox');
+    if (!existsSync(inbox)) return out;
+    let files: string[];
+    try { files = readdirSync(inbox).filter((f) => f.endsWith('.json')); } catch { return out; }
+    if (files.length === 0) return out;
+    const done = join(inbox, '.done');
+    try { mkdirSync(done, { recursive: true }); } catch { return out; }
+    for (const f of files) {
+      const fp = join(inbox, f);
+      let msg: Partial<HiveMessage> = {};
+      try { msg = JSON.parse(readFileSync(fp, 'utf8')) as Partial<HiveMessage>; } catch { /* half-written: file it by mtime */ }
+      let at = Date.parse(msg.created_at ?? '');
+      if (!Number.isFinite(at)) { try { at = statSync(fp).mtimeMs; } catch { at = 0; } }
+      if (at > before) { out.kept++; continue; }
+      try { renameSync(fp, join(done, f)); out.moved++; } catch { continue; }
+      if (msg.act === 'request' || msg.act === 'query') {
+        out.unanswered.push({
+          id: msg.id ?? f, act: msg.act, from: msg.from ?? 'unknown', subject: msg.subject ?? '',
+          conversation: msg.conversation ?? ''
+        });
+      }
+    }
+    if (out.moved > 0) {
+      try {
+        this.appendLog({ kind: 'inbox-settled', agentId: id, count: out.moved });
+        this.commit(`hive: settle inbox of ${id} (${out.moved} unread)`);
+      } catch { /* best-effort */ }
+    }
+    return out;
+  }
+
   /**
    * Change an agent's display name without changing its durable identity.
    * The registry key, agent directory, session id, and every mailbox path remain
@@ -1528,7 +1572,7 @@ export class HiveManager {
       act,
       subject: partial.subject ?? '',
       body: partial.body ?? '',
-      hops: typeof partial.hops === 'number' ? partial.hops : 0,
+      hops: Math.max(0, Math.min(typeof partial.hops === 'number' ? partial.hops : 0, HOP_CAP)),
       requires_reply: partial.requires_reply ?? ['request', 'query', 'propose'].includes(act),
       needs_human: partial.needs_human ?? false,
       created_at: partial.created_at ?? new Date().toISOString()
@@ -1545,6 +1589,16 @@ export class HiveManager {
     return true;
   }
 
+  /** One harness bounce of `msg` to god. This is the only place hops moves. */
+  private bounceToGod(msg: HiveMessage, godId: string, subject: string): void {
+    const hops = msg.hops + 1;
+    if (hops > HOP_CAP) {
+      this.appendLog({ kind: 'drop', reason: 'hop-cap', from: msg.from, to: msg.to, id: msg.id });
+      return;
+    }
+    this.deliver({ ...msg, hops, to: godId, subject }, godId);
+  }
+
   /** Inject a message directly (used by the orchestrator / UI / tests). */
   send(partial: Partial<HiveMessage>, from = 'system'): HiveMessage {
     const msg = this.normalize(partial, from);
@@ -1554,12 +1608,6 @@ export class HiveManager {
   }
 
   private routeMessage(msg: HiveMessage): void {
-    if (msg.hops > HOP_CAP) {
-      // loop guard — drop a runaway message rather than let agents ping-pong.
-      // There's no human queue to fall back on; the god agent owns conflicts.
-      this.appendLog({ kind: 'drop', reason: 'hop-cap', from: msg.from, to: msg.to, id: msg.id });
-      return;
-    }
     const reg = this.registry();
     const godId = reg.godId ?? 'god';
     // The hive has no separate human-approval queue — approvals are native to
@@ -1585,11 +1633,27 @@ export class HiveManager {
       // unread for hours). Bounce such mail to god instead, so the sender's intent
       // surfaces immediately and nothing is silently lost.
       if (reg.agents[t]?.isAssistant) {
-        this.deliver({
-          ...msg,
-          to: godId,
-          subject: `[bounced — "${t}" is the send-only prep assistant; route work to a real agent] ${msg.subject}`
-        }, godId);
+        this.bounceToGod(msg, godId, `[bounced — "${t}" is the send-only prep assistant; route work to a real agent] ${msg.subject}`);
+        continue;
+      }
+      if (t !== godId && reg.agents[t]?.archived) {
+        if (this.deliver(msg, t)) delivered.push(t);
+        this.appendLog({ kind: 'archived-recipient', from: msg.from, to: t, id: msg.id, act: msg.act });
+        const sender = reg.agents[msg.from];
+        if (msg.requires_reply && sender && !sender.archived) {
+          this.routeMessage(this.normalize({
+            to: msg.from,
+            act: 'inform',
+            in_reply_to: msg.id,
+            conversation: msg.conversation,
+            hops: msg.hops + 1,
+            requires_reply: false,
+            subject: `[no one is there to answer — "${t}" is archived] ${msg.subject}`,
+            body: `Your ${msg.act} to ${t} was filed in its inbox, but ${t} has no live terminal (archived), `
+              + `so it will only be read if ${t} is restored or re-hired under the same id. `
+              + 'If you need this done now, route it to an agent on the live roster or hire one.'
+          }, 'system'));
+        }
         continue;
       }
       // A provider without safe-idle lifecycle state (a hookless custom command)
@@ -1600,11 +1664,7 @@ export class HiveManager {
       // (the bounce target).
       if (t !== godId && !canReceiveInbox(reg.agents[t]?.provider)) {
         if (!this.emitTerminalHandoff(msg, t)) {
-          this.deliver({
-            ...msg,
-            to: godId,
-            subject: `[undeliverable — "${t}" runs ${reg.agents[t]?.provider ?? 'a hookless CLI'} and the terminal handoff failed (renderer unavailable); relay this to it] ${msg.subject}`
-          }, godId);
+          this.bounceToGod(msg, godId, `[undeliverable — "${t}" runs ${reg.agents[t]?.provider ?? 'a hookless CLI'} and the terminal handoff failed (renderer unavailable); relay this to it] ${msg.subject}`);
         } else delivered.push(t);
         continue;
       }
@@ -1616,11 +1676,7 @@ export class HiveManager {
       const proxyDesc = bridgeOf(reg.agents[t]?.provider);
       if (t !== godId && proxyDesc?.kind === 'proxy' && proxyDesc.inboxDelivery === 'terminal') {
         if (!this.emitTerminalHandoff(msg, t)) {
-          this.deliver({
-            ...msg,
-            to: godId,
-            subject: `[undeliverable — "${t}" runs ${reg.agents[t]?.provider ?? 'a proxy-tier CLI'} and the terminal handoff failed (renderer unavailable); relay this to it] ${msg.subject}`
-          }, godId);
+          this.bounceToGod(msg, godId, `[undeliverable — "${t}" runs ${reg.agents[t]?.provider ?? 'a proxy-tier CLI'} and the terminal handoff failed (renderer unavailable); relay this to it] ${msg.subject}`);
         } else delivered.push(t);
         continue;
       }
@@ -1631,11 +1687,7 @@ export class HiveManager {
       // hop-cap one and bounce to god, mirroring the undeliverable bounces above.
       this.appendLog({ kind: 'drop', reason: 'no-inbox', from: msg.from, to: t, id: msg.id });
       if (t !== godId) {
-        this.deliver({
-          ...msg,
-          to: godId,
-          subject: `[undeliverable — no agent "${t}" on this floor; check the id against the roster] ${msg.subject}`
-        }, godId);
+        this.bounceToGod(msg, godId, `[undeliverable — no agent "${t}" on this floor; check the id against the roster] ${msg.subject}`);
       }
     }
     this.appendLog({ kind: 'message', from: msg.from, to: msg.to, act: msg.act, subject: msg.subject, id: msg.id, delivered });

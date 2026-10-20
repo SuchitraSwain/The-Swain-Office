@@ -28,7 +28,7 @@ import { linkWorktreeDeps, unlinkWorktreeDeps } from './worktreeDeps';
 import { HiveManager, type AgentMeta, type HiveMessage, type HiveTask } from './hive';
 import { HookServer } from './hooks';
 import { CircuitBreaker, type BreakerInput } from './breaker';
-import type { UsageProvider } from './usage';
+import { CumulativeSampleGate, type UsageProvider } from './usage';
 import { MemoryManager } from './memory';
 import { KnowledgeManager } from './knowledge';
 import { MemoryReflector, type ReflectSettings } from './reflect';
@@ -64,7 +64,7 @@ import { validateBaseUrl, buildAuthHeaders, resolveUpstreamUrl, secretRefFor, IN
 import { RosterStore } from './roster';
 import { buildWorkerLaunch } from './workerLaunch';
 import { ControlRegistry } from './control';
-import { WorkerWakeWatchdog, type WorkerWakeFacts } from './workerWake';
+import { WorkerWakeWatchdog, activityEvidenceAt, WORKER_WAKE_REPORT_MS, type WorkerWakeFacts } from './workerWake';
 import { inboxNudgeText } from '../shared/hiveNudge';
 import { resolveGodName } from '../shared/godIdentity';
 import { fetchHireManifest, readHireManifestFiles } from './hire';
@@ -276,6 +276,10 @@ const telemetry = new TelemetryCollector({
 // untouched; telemetry has a transcript fallback built in, so it works before any
 // live OTel arrives.
 const usageProvider: UsageProvider = telemetry;
+// Grok agents are costed from a cumulative file snapshot, so an idle one
+// re-reads identical totals every beat. Their session id is real, so the
+// liveness gate below cannot filter that — admit a row only when the numbers move.
+const grokLedgerGate = new CumulativeSampleGate();
 // Circuit breaker (Lane A #6.6b) — the REAL policy (replaces Lane C's interim
 // glue). POLICY only; the heartbeat beat feeds it signals (via usageProvider) +
 // enforces its decisions. Config read live so a settings change applies next beat.
@@ -468,6 +472,7 @@ function teardownPty(id: string): void {
     try { workerWake.forget(agentId, id); } catch { /* best-effort */ }
     // Drop breaker state so a dead agent can't leak/zombie a tripped level.
     try { breaker.forget(agentId); } catch { /* best-effort */ }
+    try { grokLedgerGate.forget(agentId); } catch { /* best-effort */ }
     // A replacement using this id needs a new usage counter, not the dead PTY's.
     try { telemetry.forgetAgent(agentId); } catch { /* best-effort */ }
     // W1 — kill this agent's proxy-bridge sidecar (qwen), if any, so a dead
@@ -1237,7 +1242,12 @@ function runBreakerBeat(progressWindowMs: number): void {
     // (2,417 dupes observed). A truthy sessionId is set only by a live session
     // (aggregateLive picks the most-recent live session id), so this gates on
     // "is there a live session" without changing any live-agent behavior.
-    if (sample?.sessionId) hive.appendCostLedger(sample); // ledger covers everyone incl. god
+    if (sample?.sessionId) {
+      // A Grok sample's session id is always truthy, so the duplicate-row risk
+      // moves from "is there a live session" to "did anything change".
+      const moved = a.provider !== 'grok' || grokLedgerGate.admits(sample);
+      if (moved) hive.appendCostLedger(sample); // ledger covers everyone incl. god
+    }
     // Second source for the resume key. recordSession() is otherwise reachable
     // ONLY from the hook shim, so any window where hooks don't land leaves the
     // registry with no sessionId and "Restart & Continue" refuses to continue —
@@ -1329,7 +1339,7 @@ function writeFleetSnapshot(): void {
           onHold: !!a.onHold
         };
       });
-    hive.writeFleetSnapshot({ ts: now, agents });
+    hive.writeFleetSnapshot({ ts: now, agents, hooks: hookServer.health() });
   } catch (e) {
     console.error('[fleet] snapshot failed:', e);
   }
@@ -1475,6 +1485,8 @@ function slackFilesDir(): string {
 
 /** Per-file download size cap — reject files larger than 10 MB before writing. */
 const SLACK_FILE_MAX_BYTES = 10 * 1024 * 1024;
+/** Socket inactivity timeout for Slack file downloads. */
+const SLACK_DOWNLOAD_TIMEOUT_MS = 12_000;
 
 /** Sanitize a Slack filename: keep only the basename, replace non-safe chars,
  *  prefix with a random hex tag to prevent collisions and path-traversal attacks. */
@@ -1552,6 +1564,9 @@ function downloadSlackFile(
       }
     );
     req.on('error', () => resolve(null));
+    // A peer that accepts and never responds would leave this promise pending,
+    // and the inbound message would be dropped after Slack was already acked.
+    req.setTimeout(SLACK_DOWNLOAD_TIMEOUT_MS, () => req.destroy(new Error('timed out')));
     req.end();
   });
 }
@@ -4697,10 +4712,11 @@ function archiveRequest(filePath: string, sub: '.done' | '.failed'): void {
  *  own timestamp), falling back to the file's mtime when `created_at` is missing
  *  or unparseable. When neither yields a usable timestamp we DON'T count it
  *  (fail toward keeping the worker alive — the idle reaper is the backstop). */
-function workerSignaledDone(workerId: string, spawnedAt: number): boolean {
+function workerDoneAt(workerId: string, spawnedAt: number): number | null {
   const root = hive.root();
-  if (!root) return false;
+  if (!root) return null;
   const base = join(root, 'agents', workerId, 'outbox');
+  let doneAt: number | null = null;
   for (const dir of [base, join(base, '.sent')]) {
     if (!existsSync(dir)) continue;
     let files: string[];
@@ -4715,11 +4731,11 @@ function workerSignaledDone(workerId: string, spawnedAt: number): boolean {
         if (!Number.isFinite(ts)) {
           try { ts = statSync(fp).mtimeMs; } catch { ts = NaN; }
         }
-        if (Number.isFinite(ts) && ts > spawnedAt) return true;
+        if (Number.isFinite(ts) && ts > spawnedAt && (doneAt === null || ts > doneAt)) doneAt = ts;
       } catch { /* skip unreadable/partial */ }
     }
   }
-  return false;
+  return doneAt;
 }
 
 /** Spin up one ephemeral worker from a spawn-request. Terminal failures (bad
@@ -4949,10 +4965,26 @@ async function ephemeralWorkerTick(): Promise<void> {
     //     worker-qa/worker-bizreview). A double teardown is a harmless no-op.
     for (const [workerId, rec] of [...liveWorkers]) {
       if (rec.releasing) continue;
-      if (workerSignaledDone(workerId, rec.spawnedAt)) {
+      const doneAt = workerDoneAt(workerId, rec.spawnedAt);
+      if (doneAt !== null) {
         // Success: the worker already replied in-thread; just release it.
         rec.releasing = true;
         console.log(`[worker] ${workerId} signaled done — releasing`);
+        const settled = hive.settleInbox(workerId, doneAt);
+        if (settled.moved > 0) console.log(`[worker] ${workerId}: filed ${settled.moved} unread inbox message(s) under inbox/.done`);
+        if (settled.kept > 0) console.log(`[worker] ${workerId}: left ${settled.kept} message(s) that arrived after its done signal pending`);
+        const unanswered = settled.unanswered.filter((m) => m.conversation !== `worker-${rec.reqId}`);
+        if (unanswered.length > 0) {
+          const oneLine = (s: string): string => s.replace(/[\r\n]+/g, ' ');
+          const lines = unanswered.map((m) => `- ${m.act} ${oneLine(m.id)} from ${oneLine(m.from)}: "${oneLine(m.subject)}"`);
+          informGod(
+            `[worker released — mail filed unread] ${workerId}`,
+            `Worker ${workerId} signaled done and was released. These messages were still unread in its inbox and were filed under inbox/.done without an answer:\n`
+            + lines.join('\n')
+            + `\nIf one of them is not the order it just completed, nobody is working on it — resend it to another agent or re-hire the worker.`,
+            rec.slack
+          );
+        }
         ptyManager.kill(workerId);
         teardownPty(workerId);
         continue;
@@ -5240,7 +5272,9 @@ function bootstrapHiveServices(): void {
 /** Cadence of the worker inbox-wake watchdog (#151). Well under the renderer's
  *  own nudge cooldown so a throttled window is caught within ~15s of a stall. */
 const WORKER_WAKE_POLL_MS = 15_000;
+const HOOK_HEALTH_MS = 15_000;
 let workerWakeTimer: ReturnType<typeof setInterval> | null = null;
+let hookHealthTimer: ReturnType<typeof setInterval> | null = null;
 
 /** Type the renderer's guarded nudge into one worker's PTY — text first, Enter a
  *  tick later (the exact submitToPty pattern: a single-chunk write would land the
@@ -5280,18 +5314,29 @@ function runWorkerWakeBeat(): void {
     const ptyId = ptyForAgent(agentId);
     if (!ptyId) continue;
     const snap = control.snapshot(agentId);
+    const mail = hive.inbox(agentId);
+    let oldestMailAt = 0;
+    for (const m of mail) {
+      const t = Date.parse(m.created_at ?? '');
+      if (Number.isFinite(t) && (oldestMailAt === 0 || t < oldestMailAt)) oldestMailAt = t;
+    }
+    const usage = telemetry.getAgentUsage(agentId);
     facts.push({
       agentId,
       isGod: agentId === reg.godId,
       ptyId,
       lastOutputAt: ptyManager.lastOutputAt(ptyId) ?? 0,
-      inboxIds: hive.inbox(agentId).map((message) => message.id).filter(Boolean),
+      inboxIds: mail.map((message) => message.id).filter(Boolean),
       autoDeliveryPaused: snap.autoDeliveryPaused,
       paused: snap.paused,
-      halted: snap.halted
+      halted: snap.halted,
+      lastActivityAt: activityEvidenceAt({ usage, spans: telemetry.getSpans(agentId) }),
+      hasTelemetry: usage !== null,
+      oldestMailAt
     });
   }
-  for (const agentId of workerWake.decide(facts, now)) {
+  const nudged = new Set(workerWake.decide(facts, now));
+  for (const agentId of nudged) {
     const ptyId = ptyForAgent(agentId);
     if (!ptyId) continue;
     // Re-read at delivery time, not from the facts snapshot: the agent may have
@@ -5301,6 +5346,17 @@ function runWorkerWakeBeat(): void {
     if (!ids.length) { console.log(`[worker-wake] ${agentId} drained before delivery, skipping`); continue; }
     console.log(`[worker-wake] nudging ${agentId} on ${ptyId} (${ids.length} pending)`);
     nudgeWorker(ptyId, ids);
+  }
+  for (const f of facts) {
+    if (nudged.has(f.agentId) || f.inboxIds.length === 0) continue;
+    const mailAge = f.oldestMailAt && f.oldestMailAt > 0 ? now - f.oldestMailAt : 0;
+    if (mailAge < WORKER_WAKE_REPORT_MS) continue;
+    if (!workerWake.shouldReportHold(f.agentId, now)) continue;
+    const hold = workerWake.explain(f, now);
+    const quiet = f.lastOutputAt > 0 ? `${Math.round((now - f.lastOutputAt) / 1000)}s` : 'never';
+    const activeAt = Math.max(f.lastActivityAt ?? 0, workerWake.turnHookAt(f.agentId));
+    const active = activeAt > 0 ? `${Math.round((now - activeAt) / 1000)}s ago` : 'never';
+    console.warn(`[worker-wake] holding ${f.agentId}: ${hold} (mail pending ${Math.round(mailAge / 1000)}s, pty quiet ${quiet}, last activity ${active})`);
   }
 }
 
@@ -5318,6 +5374,8 @@ function armAlwaysOnBeats(): void {
   if (workerWakeTimer) clearInterval(workerWakeTimer);
   workerWakeTimer = setInterval(() => { try { runWorkerWakeBeat(); } catch (e) { console.error('[worker-wake beat]', e); } }, WORKER_WAKE_POLL_MS);
   runWorkerWakeBeat(); // catch-up on arm — power-resume re-arms and drains the backlog
+  if (hookHealthTimer) clearInterval(hookHealthTimer);
+  hookHealthTimer = setInterval(() => { hookServer.ensureListening().catch((e) => console.error('[hooks beat]', e)); }, HOOK_HEALTH_MS);
 }
 
 /** Wall-clock instant we last observed the machine suspend or lock, so a resume

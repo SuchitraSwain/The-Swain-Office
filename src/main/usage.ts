@@ -80,6 +80,37 @@ function normalizeModel(model: string | null | undefined): string | null {
  * AgentUsageSample. Stands in for Oscar's provider until Lane C lands; the
  * consumers (breaker, ledger) call it through UsageProvider and never change.
  */
+/**
+ * Duplicate gate for CUMULATIVE file-snapshot samples (Grok).
+ *
+ * `appendCostLedger` is fed a running TOTAL, not an increment, so re-appending
+ * an unchanged sample writes the same row over and over. The Grok provider
+ * needs a real session id, so it cannot use the empty-sessionId trick the
+ * transcript fallback uses. Append only when the numbers actually moved.
+ *
+ * `ts` is deliberately NOT part of the signature. It tracks when the file was
+ * written, not what it says.
+ */
+export class CumulativeSampleGate {
+  private readonly last = new Map<string, string>();
+
+  /** True when this sample differs from the last one admitted for the agent. */
+  admits(sample: AgentUsageSample): boolean {
+    const signature = [
+      sample.sessionId, sample.input, sample.output,
+      sample.cacheRead, sample.cacheCreation, sample.model, sample.usd
+    ].join('|');
+    if (this.last.get(sample.agentId) === signature) return false;
+    this.last.set(sample.agentId, signature);
+    return true;
+  }
+
+  /** Drop an agent's memory (archived/despawned) so the map cannot grow forever. */
+  forget(agentId: string): void {
+    this.last.delete(agentId);
+  }
+}
+
 export class StubUsageProvider implements UsageProvider {
   constructor(private resolve: UsageResolver) {}
 

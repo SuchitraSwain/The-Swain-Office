@@ -94,6 +94,59 @@ export function pathTokenMatcher(): RegExp {
   return new RegExp(PATH_TOKEN_RE.source, 'g');
 }
 
+/** https URLs only. Matched before path tokens so `https://` is not read as drive `s:`. */
+const URL_TOKEN_RE = /https:\/\/[^\s<>"'`{}|\\^]+/gi;
+
+export function urlTokenMatcher(): RegExp {
+  return new RegExp(URL_TOKEN_RE.source, 'gi');
+}
+
+const URL_TRAILING_PROSE = /["'`>,.;:!?]+$/;
+
+export function stripUrlToken(raw: string): string {
+  let out = raw.replace(URL_TRAILING_PROSE, '');
+  const unbalanced = (open: string, close: string): boolean =>
+    (out.split(open).length - 1) < (out.split(close).length - 1);
+  let trimmed = true;
+  while (trimmed) {
+    trimmed = false;
+    if (out.endsWith(')') && unbalanced('(', ')')) { out = out.slice(0, -1); trimmed = true; }
+    if (out.endsWith(']') && unbalanced('[', ']')) { out = out.slice(0, -1); trimmed = true; }
+    const next = out.replace(URL_TRAILING_PROSE, '');
+    if (next !== out) { out = next; trimmed = true; }
+  }
+  return out.replace(/^https:\/\//i, 'https://');
+}
+
+export interface TerminalLinkSpan {
+  kind: 'url' | 'path';
+  token: string;
+  raw: string;
+  start: number;
+  end: number;
+}
+
+export function terminalLinkSpans(text: string): TerminalLinkSpan[] {
+  const out: TerminalLinkSpan[] = [];
+  const ure = urlTokenMatcher();
+  let um: RegExpExecArray | null;
+  while ((um = ure.exec(text)) !== null) {
+    const token = stripUrlToken(um[0]);
+    if (!/^https:\/\/./.test(token)) continue;
+    out.push({ kind: 'url', token, raw: token, start: um.index, end: um.index + token.length });
+  }
+  const pre = pathTokenMatcher();
+  let pm: RegExpExecArray | null;
+  while ((pm = pre.exec(text)) !== null) {
+    const raw = pm[0];
+    const start = pm.index;
+    const end = start + raw.length;
+    if (out.some((u) => start < u.end && end > u.start)) continue;
+    out.push({ kind: 'path', token: stripPathToken(raw), raw, start, end });
+  }
+  return out.sort((a, b) => a.start - b.start);
+}
+
 /** Strip shell/prose wrapping and any trailing `:line` from a raw match. */
 export function stripPathToken(raw: string): string {
   return raw
